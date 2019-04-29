@@ -122,8 +122,8 @@ size_t SimpleGCHeap::unsafe_max_tlab_alloc(Thread* thr) const {
 
 SimpleGCHeap* SimpleGCHeap::heap() {
   CollectedHeap* heap = Universe::heap();
-  assert(heap != NULL, "Uninitialized access to EpsilonHeap::heap()");
-  assert(heap->kind() == CollectedHeap::Epsilon, "Not an Epsilon heap");
+  assert(heap != NULL, "Uninitialized access to SimpleGCHeap::heap()");
+  assert(heap->kind() == CollectedHeap::SimpleGC, "Not an Epsilon heap");
   return (SimpleGCHeap*)heap;
 }
 
@@ -131,30 +131,11 @@ HeapWord* SimpleGCHeap::allocate_work(size_t size) {
   assert(is_object_aligned(size), "Allocation size should be aligned: " SIZE_FORMAT, size);
 
   HeapWord* res = _space->par_allocate(size);
+  size_t space_left = max_capacity() - capacity();
 
-  while (res == NULL) {
-    // Allocation failed, attempt expansion, and retry:
-    MutexLockerEx ml(Heap_lock);
-
-    size_t space_left = max_capacity() - capacity();
-    size_t want_space = MAX2(size, EpsilonMinHeapExpand);
-
-    if (want_space < space_left) {
-      // Enough space to expand in bulk:
-      bool expand = _virtual_space.expand_by(want_space);
-      assert(expand, "Should be able to expand");
-    } else if (size < space_left) {
-      // No space to expand in bulk, and this allocation is still possible,
-      // take all the remaining space:
-      bool expand = _virtual_space.expand_by(space_left);
-      assert(expand, "Should be able to expand");
-    } else {
-      // No space left:
-      return NULL;
-    }
-
-    _space->set_end((HeapWord *) _virtual_space.high());
-    res = _space->par_allocate(size);
+  if ((res == NULL) && (size > space_left)) {
+	  log_info(gc)("Failed to allocate %d %s bytes", (int)byte_size_in_proper_unit(size), proper_unit_for_byte_size(size));
+	  return NULL; //not enough space left. This heap does not support expansion. You need to give ms and mx as same while starting the jvm
   }
 
   size_t used = _space->used();
@@ -389,7 +370,7 @@ HeapWord* SimpleGCHeap::allocate_or_collect_work(size_t size) {
   return res;
 }
 
-typedef Stack<oop, mtGC> EpsilonMarkStack;
+typedef Stack<oop, mtGC> SimpleGCMarkStack;
 
 void SimpleGCHeap::do_roots(OopClosure* cl, bool everything) {
   // Need to tell runtime we are about to walk the roots with 1 thread
@@ -444,7 +425,7 @@ void SimpleGCHeap::walk_bitmap(ObjectClosure* cl) {
 
 class EpsilonScanOopClosure : public BasicOopIterateClosure {
 private:
-  EpsilonMarkStack* const _stack;
+  SimpleGCMarkStack* const _stack;
   MarkBitMap* const _bitmap;
 
   template <class T>
@@ -466,7 +447,7 @@ private:
   }
 
 public:
-  EpsilonScanOopClosure(EpsilonMarkStack* stack, MarkBitMap* bitmap) :
+  EpsilonScanOopClosure(SimpleGCMarkStack* stack, MarkBitMap* bitmap) :
                         _stack(stack), _bitmap(bitmap) {}
   virtual void do_oop(oop* p)       { do_oop_work(p); }
   virtual void do_oop(narrowOop* p) { do_oop_work(p); }
@@ -564,7 +545,7 @@ public:
 class EpsilonVerifyOopClosure : public BasicOopIterateClosure {
 private:
   SimpleGCHeap* const _heap;
-  EpsilonMarkStack* const _stack;
+  SimpleGCMarkStack* const _stack;
   MarkBitMap* const _bitmap;
 
   template <class T>
@@ -585,7 +566,7 @@ private:
   }
 
 public:
-  EpsilonVerifyOopClosure(EpsilonMarkStack* stack, MarkBitMap* bitmap) :
+  EpsilonVerifyOopClosure(SimpleGCMarkStack* stack, MarkBitMap* bitmap) :
     _heap(SimpleGCHeap::heap()), _stack(stack), _bitmap(bitmap) {}
   virtual void do_oop(oop* p)       { do_oop_work(p); }
   virtual void do_oop(narrowOop* p) { do_oop_work(p); }
@@ -632,7 +613,7 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
     // Marking stack and the closure that does most of the work. The closure
     // would scan the outgoing references, mark them, and push newly-marked
     // objects to stack for further processing.
-    EpsilonMarkStack stack;
+    SimpleGCMarkStack stack;
     EpsilonScanOopClosure cl(&stack, &_bitmap);
 
     // Seed the marking with roots.
@@ -728,7 +709,7 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
       // at least one dead object with dead outgoing references would fail the
       // verification. Therefore, it makes more sense to mark through the heap
       // again, not assuming objects are all alive.
-      EpsilonMarkStack stack;
+      SimpleGCMarkStack stack;
       EpsilonVerifyOopClosure cl(&stack, &_bitmap);
 
       _bitmap.clear();

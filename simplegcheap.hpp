@@ -42,10 +42,10 @@ public:
 
   SimpleGCHeap(SimpleGCPolicy* p):
           _policy(p),
-          _memory_manager("Epsilon Heap", "") {};
+          _memory_manager("SimpleGC Heap", "") {};
 
   virtual Name kind() const {
-    return CollectedHeap::Epsilon;
+    return CollectedHeap::SimpleGC;
   }
 
   virtual const char* name() const {
