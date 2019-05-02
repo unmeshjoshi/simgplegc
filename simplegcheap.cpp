@@ -49,7 +49,7 @@ void SimpleGCHeap::init_monitoring_support() {
 	_last_heap_print = 0;
 }
 
-void SimpleGCHeap::allocate_bitmap(Pair<char*, size_t> heap_base_address_and_size) {
+void SimpleGCHeap::allocate_marking_bitmap(Pair<char*, size_t> heap_base_address_and_size) {
 	size_t bitmap_page_size =
 			UseLargePages ?
 					(size_t) (os::large_page_size()) :
@@ -104,7 +104,7 @@ jint SimpleGCHeap::initialize() {
 	init_heap_log_steps(heap_size_in_bytes);
 	init_monitoring_support();
 	registerBarrier();
-	allocate_bitmap(heap_base_address_and_size);
+	allocate_marking_bitmap(heap_base_address_and_size);
 
 	// All done, print out the configuration
 	log_info(gc)("Non-resizeable heap; start/max: " SIZE_FORMAT "M", heap_size_in_bytes / M);
@@ -398,10 +398,10 @@ HeapWord* SimpleGCHeap::allocate_or_collect_work(size_t size) {
 typedef Stack<oop, mtGC> SimpleGCMarkStack;
 
 void SimpleGCHeap::do_roots(OopClosure* cl, bool everything) {
-		  // Need to tell runtime we are about to walk the roots with 1 thread
+	// Need to tell runtime we are about to walk the roots with 1 thread
 	StrongRootsScope scope(1);
 
-		  // Need to adapt oop closure for some special root types.
+	// Need to adapt oop closure for some special root types.
 	CLDToOopClosure clds(cl, ClassLoaderData::_claim_none);
 	MarkingCodeBlobClosure blobs(cl, CodeBlobToOopClosure::FixRelocations);
 
@@ -483,13 +483,13 @@ class ScanOopClosure: public BasicOopIterateClosure {
 		}
 };
 
-class EpsilonCalcNewLocationObjectClosure: public ObjectClosure {
+class CalculateNewLocationObjectClosure: public ObjectClosure {
 	private:
 		HeapWord* _compact_point;
 		PreservedMarks* const _preserved_marks;
 
 	public:
-		EpsilonCalcNewLocationObjectClosure(HeapWord* start, PreservedMarks* pm) :_compact_point(start), _preserved_marks(pm) {}
+		CalculateNewLocationObjectClosure(HeapWord* start, PreservedMarks* pm) :_compact_point(start), _preserved_marks(pm) {}
 
 		void do_object(oop obj) {
 			  // Record the new location of the object: it is current compaction point.
@@ -511,7 +511,7 @@ class EpsilonCalcNewLocationObjectClosure: public ObjectClosure {
 		}
 };
 
-class EpsilonAdjustPointersOopClosure: public BasicOopIterateClosure {
+class AdjustPointersOopClosure: public BasicOopIterateClosure {
 	private:
 		template<class T>
 		void do_oop_work(T* p) {
@@ -540,9 +540,9 @@ class EpsilonAdjustPointersOopClosure: public BasicOopIterateClosure {
 		}
 };
 
-class EpsilonAdjustPointersObjectClosure: public ObjectClosure {
+class AdjustPointersObjectClosure: public ObjectClosure {
 	private:
-		EpsilonAdjustPointersOopClosure _cl;
+		AdjustPointersOopClosure _cl;
 	public:
 		void do_object(oop obj) {
 			// Apply the updates to all references reachable from current object:
@@ -550,11 +550,11 @@ class EpsilonAdjustPointersObjectClosure: public ObjectClosure {
 		}
 };
 
-class EpsilonMoveObjectsObjectClosure: public ObjectClosure {
+class MoveObjectsObjectClosure: public ObjectClosure {
 	private:
 		size_t _moved;
 	public:
-		EpsilonMoveObjectsObjectClosure():ObjectClosure(), _moved(0) {}
+		MoveObjectsObjectClosure():ObjectClosure(), _moved(0) {}
 
 		void do_object(oop obj) {
 				// Copy the object to its new location, if needed. This is final step,
@@ -574,7 +574,7 @@ class EpsilonMoveObjectsObjectClosure: public ObjectClosure {
 		}
 };
 
-class EpsilonVerifyOopClosure: public BasicOopIterateClosure {
+class SimpleGCVerifyOopClosure: public BasicOopIterateClosure {
 	private:
 		SimpleGCHeap* const _heap;
 		SimpleGCMarkStack* const _stack;
@@ -598,7 +598,7 @@ class EpsilonVerifyOopClosure: public BasicOopIterateClosure {
 		}
 
 	public:
-		EpsilonVerifyOopClosure(SimpleGCMarkStack* stack, MarkBitMap* bitmap) : _heap(SimpleGCHeap::heap()), _stack(stack), _bitmap(bitmap) {}
+		SimpleGCVerifyOopClosure(SimpleGCMarkStack* stack, MarkBitMap* bitmap) : _heap(SimpleGCHeap::heap()), _stack(stack), _bitmap(bitmap) {}
 
 		virtual void do_oop(oop* p) {
 			do_oop_work(p);
@@ -681,7 +681,7 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
 
 			// Walk all alive objects, compute their new addresses and store those
 			// addresses in mark words. Optionally preserve some marks.
-		EpsilonCalcNewLocationObjectClosure cl(_space->bottom(), &preserved_marks);
+		CalculateNewLocationObjectClosure cl(_space->bottom(), &preserved_marks);
 		walk_bitmap(&cl);
 
 			// After addresses are calculated, we know the new top for the allocated
@@ -698,12 +698,12 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
 		  // Walk all alive objects _and their reference fields_, and put "new
 		  // addresses" there. We know the new addresses from the forwarding data
 		  // in mark words. Take care of the heap objects first.
-		EpsilonAdjustPointersObjectClosure cl;
+		AdjustPointersObjectClosure cl;
 		walk_bitmap(&cl);
 
 		  // Now do the same, but for all VM roots, which reference the objects on
 		  // their own: their references should also be updated.
-		EpsilonAdjustPointersOopClosure cli;
+		AdjustPointersOopClosure cli;
 		process_roots(&cli);
 
 		  // Finally, make sure preserved marks know the objects are about to move.
@@ -715,7 +715,7 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
 
 			// Move all alive objects to their new locations. All the references are
 			// already adjusted at previous step.
-		EpsilonMoveObjectsObjectClosure cl;
+		MoveObjectsObjectClosure cl;
 		walk_bitmap(&cl);
 		stat_moved = cl.moved();
 
@@ -746,7 +746,7 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
 			// verification. Therefore, it makes more sense to mark through the heap
 			// again, not assuming objects are all alive.
 			SimpleGCMarkStack stack;
-			EpsilonVerifyOopClosure cl(&stack, &_bitmap);
+			SimpleGCVerifyOopClosure cl(&stack, &_bitmap);
 
 			_bitmap.clear();
 

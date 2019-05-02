@@ -188,7 +188,7 @@ private:
 	void update_counters();
 	void print_occupancy();
 	void init_monitoring_support();
-	void allocate_bitmap(Pair<char*, size_t> heap_base_address_and_size);
+	void allocate_marking_bitmap(Pair<char*, size_t> heap_base_address_and_size);
 	void registerBarrier();
 	void log_initial_heap_info();
 	void init_heap_log_steps(size_t heap_max_byte_size);

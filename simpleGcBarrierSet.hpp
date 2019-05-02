@@ -13,7 +13,7 @@
 #include "gc/shared/barrierSetAssembler.hpp"
 #include "gc/shared/barrierSet.hpp"
 
-// No interaction with application is required for Epsilon, and therefore
+// No interaction with application is required for SimpleGC, and therefore
 // the barrier set is empty.
 class SimpleGCBarrierSet: public BarrierSet {
   friend class VMStructs;
