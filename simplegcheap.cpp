@@ -737,7 +737,8 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
 		JvmtiExport::gc_epilogue();
 
 			// Verification code walks entire heap and verifies nothing is broken.
-		if (EpsilonVerify) {
+		bool vefigyHeap = true;
+		if (vefigyHeap) {
 			// The basic implementation turns heap into entirely parsable one with
 			// only alive objects, which mean we could just walked the heap object
 			// by object and verify it. But, it would be inconvenient for verification
