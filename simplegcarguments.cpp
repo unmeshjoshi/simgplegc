@@ -25,8 +25,6 @@
 #include "precompiled.hpp"
 #include "gc/simplegc/simplegcarguments.hpp"
 #include "gc/simplegc/simplegcheap.hpp"
-#include "gc/simplegc/simplegcpolicy.hpp"
-#include "gc/shared/gcArguments.inline.hpp"
 #include "runtime/globals.hpp"
 #include "runtime/globals_extension.hpp"
 #include "runtime/vm_version.hpp"
@@ -36,10 +34,17 @@ size_t SimpleGCArguments::conservative_max_heap_alignment() {
   return UseLargePages ? os::large_page_size() : os::vm_page_size();
 }
 
+void SimpleGCArguments::initialize_alignments() {
+	  size_t page_size = UseLargePages ? os::large_page_size() : os::vm_page_size();
+	  size_t align = MAX2((size_t)os::vm_allocation_granularity(), page_size);
+	  SpaceAlignment = align;
+	  HeapAlignment  = align;
+}
+
 void SimpleGCArguments::initialize() {
   GCArguments::initialize();
 }
 
 CollectedHeap* SimpleGCArguments::create_heap() {
-  return create_heap_with_policy<SimpleGCHeap, SimpleGCPolicy>();
+  return new SimpleGCHeap();
 }

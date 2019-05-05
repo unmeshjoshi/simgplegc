@@ -32,6 +32,7 @@ class CollectedHeap;
 class SimpleGCArguments : public GCArguments {
 public:
   virtual void initialize();
+  virtual void initialize_alignments();
   virtual size_t conservative_max_heap_alignment();
   virtual CollectedHeap* create_heap();
 };

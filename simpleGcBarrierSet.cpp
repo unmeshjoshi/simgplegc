@@ -1,7 +1,6 @@
 #include "precompiled.hpp"
 #include "runtime/thread.hpp"
 #include "gc/simplegc/simpleGcBarrierSet.hpp"
-#include "gc/shared/collectorPolicy.hpp"
 #include "gc/shared/barrierSet.hpp"
 #include "gc/shared/barrierSetAssembler.hpp"
 #include "utilities/macros.hpp"

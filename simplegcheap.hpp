@@ -13,7 +13,6 @@
 #include "gc/shared/softRefPolicy.hpp"
 #include "gc/shared/space.hpp"
 #include "services/memoryManager.hpp"
-#include "gc/simplegc/simplegcpolicy.hpp"
 #include "gc/simplegc/simpleGcMonitoringSupport.hpp"
 #include "gc/epsilon/epsilonBarrierSet.hpp"
 #include "gc/epsilon/epsilon_globals.hpp"
@@ -22,7 +21,6 @@
 class SimpleGCHeap: public CollectedHeap {
 	friend class VMStructs;
 private:
-	SimpleGCPolicy* _policy;
 	SoftRefPolicy _soft_ref_policy;
 	SimpleGCMonitoringSupport* _monitoring_support;
 	MemoryPool* _pool;
@@ -41,8 +39,7 @@ private:
 public:
 	static SimpleGCHeap* heap();
 
-	SimpleGCHeap(SimpleGCPolicy* p) :
-			_policy(p), _memory_manager("SimpleGC Heap", "") {
+	SimpleGCHeap() :_memory_manager("SimpleGC Heap", "") {
 	}
 	;
 
@@ -52,10 +49,6 @@ public:
 
 	virtual const char* name() const {
 		return "SimpleGC";
-	}
-
-	virtual CollectorPolicy* collector_policy() const {
-		return _policy;
 	}
 
 	virtual SoftRefPolicy* soft_ref_policy() {
@@ -84,9 +77,7 @@ public:
 	}
 
 	virtual bool is_scavengable(oop obj) {
-		// No GC is going to happen, therefore no objects ever move.
-		// Or are they... (evil laugh).
-		return EpsilonSlidingGC;
+		return true;
 	}
 
 	virtual bool is_maximal_no_gc() const {
@@ -126,10 +117,9 @@ public:
 		safe_object_iterate(cl);
 	}
 
-	// Object pinning support: every object is implicitly pinned
-	// Or is it... (evil laugh)
+
 	virtual bool supports_object_pinning() const {
-		return !EpsilonSlidingGC;
+		return false;
 	}
 	virtual oop pin_object(JavaThread* thread, oop obj) {
 		return obj;
@@ -169,6 +159,12 @@ public:
 	virtual void print_tracing_info() const;
 
 	void entry_collect(GCCause::Cause cause);
+
+	 // No nmethod handling
+	  virtual void register_nmethod(nmethod* nm) {}
+	  virtual void unregister_nmethod(nmethod* nm) {}
+	  virtual void flush_nmethod(nmethod* nm) {}
+	  virtual void verify_nmethod(nmethod* nm) {}
 
 private:
 	void print_heap_info(size_t used) const;

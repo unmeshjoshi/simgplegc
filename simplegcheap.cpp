@@ -25,6 +25,7 @@
 #include "runtime/vmThread.hpp"
 #include "utilities/stack.inline.hpp"
 #include "services/management.hpp"
+#include "gc/shared/gcArguments.hpp"
 #include "logging/log.hpp"
 
 Pair<char*, size_t> SimpleGCHeap::allocate_heap_memory(size_t heap_size_in_bytes, size_t align) {
@@ -94,20 +95,21 @@ void SimpleGCHeap::init_tlab_size() {
 }
 
 jint SimpleGCHeap::initialize() {
-	size_t align = _policy->heap_alignment();
-	size_t heap_size_in_bytes = align_up(_policy->max_heap_byte_size(), align);
+	size_t align = HeapAlignment;
+    size_t init_byte_size = align_up(InitialHeapSize, align);
+	size_t max_byte_size  = align_up(MaxHeapSize, align);
 
 	// Initialize backing storage
-	Pair<char*, size_t> heap_base_address_and_size = allocate_heap_memory(heap_size_in_bytes, align);
+	Pair<char*, size_t> heap_base_address_and_size = allocate_heap_memory(max_byte_size, align);
 
 	init_tlab_size();
-	init_heap_log_steps(heap_size_in_bytes);
+	init_heap_log_steps(max_byte_size);
 	init_monitoring_support();
 	registerBarrier();
 	allocate_marking_bitmap(heap_base_address_and_size);
 
 	// All done, print out the configuration
-	log_info(gc)("Non-resizeable heap; start/max: " SIZE_FORMAT "M", heap_size_in_bytes / M);
+	log_info(gc)("Non-resizeable heap; start/max: " SIZE_FORMAT "M", max_byte_size / M);
 	log_info(gc)("Using TLAB allocation; max: " SIZE_FORMAT "K", _max_tlab_size * HeapWordSize / K);
 
 	return JNI_OK;
@@ -142,7 +144,7 @@ size_t SimpleGCHeap::unsafe_max_tlab_alloc(Thread* thr) const {
 
 SimpleGCHeap* SimpleGCHeap::heap() {
 	CollectedHeap* heap = Universe::heap();
-	assert(heap != NULL, "Uninitialized access to SimpleGCHeap::heap()");assert(heap->kind() == CollectedHeap::SimpleGC, "Not an Epsilon heap");
+	assert(heap != NULL, "Uninitialized access to SimpleGCHeap::heap()");assert(heap->kind() == CollectedHeap::SimpleGC, "Not an SimpleGC heap");
 	return (SimpleGCHeap*) heap;
 }
 
@@ -347,7 +349,7 @@ class VM_SimpleGCCollect: public VM_Operation {
 	public:
 		VM_SimpleGCCollect(GCCause::Cause cause) :
 		VM_Operation(), _cause(cause), _heap(SimpleGCHeap::heap()) {}
-		VM_Operation::VMOp_Type type() const {	return VMOp_EpsilonCollect;	}
+		VM_Operation::VMOp_Type type() const {	return VMOp_SimpleGCCollect;	}
 		const char* name() const {	 return "SimpleGCHeap Collection";}
 
 	virtual bool doit_prologue() {
@@ -408,11 +410,11 @@ void SimpleGCHeap::do_roots(OopClosure* cl, bool everything) {
 	// Walk all these different parts of runtime roots. Some roots require
 	// holding the lock when walking them.
 	{
-		MutexLockerEx lock(CodeCache_lock, Mutex::_no_safepoint_check_flag);
+		MutexLocker lock(CodeCache_lock, Mutex::_no_safepoint_check_flag);
 		CodeCache::blobs_do(&blobs);
 	}
 	{
-		MutexLockerEx lock(ClassLoaderDataGraph_lock);
+		MutexLocker lock(ClassLoaderDataGraph_lock);
 		ClassLoaderDataGraph::cld_do(&clds);
 	}
 	Universe::oops_do(cl);
@@ -635,7 +637,6 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
 		ensure_parsability(true);
 
 			// Tell various parts of runtime we are doing GC.
-		CodeCache::gc_prologue();
 		BiasedLocking::preserve_marks();
 
 			// Derived pointers would be re-discovered during the mark.
@@ -733,7 +734,6 @@ void SimpleGCHeap::entry_collect(GCCause::Cause cause) {
 			// Tell the rest of runtime we have finished the GC.
 		DerivedPointerTable::update_pointers();
 		BiasedLocking::restore_marks();
-		CodeCache::gc_epilogue();
 		JvmtiExport::gc_epilogue();
 
 			// Verification code walks entire heap and verifies nothing is broken.
